@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Luz - MQTT</title>
+    <style>
+        /* Estilos generales minimalistas */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            /* Fondo con degradado muy suave de blanco roto a gris claro */
+            background: linear-gradient(to bottom right, #FBFBFB, #EEEEEE);
+            margin: 0;
+            color: #444; /* Color de texto general ligeramente más oscuro que antes */
+        }
+        .container {
+            background-color: #FFFFFF; /* Fondo blanco puro para el contenedor */
+            padding: 40px;
+            border-radius: 12px; /* Bordes redondeados más suaves */
+            /* Sombra sutil pero perceptible */
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.08);
+            text-align: center;
+            max-width: 450px; /* Un poco más ancho */
+            width: 90%;
+        }
+        h1 {
+            color: #000000; /* Color negro para el título */
+            margin-bottom: 35px; /* Más espacio */
+            font-size: 2.4em; /* Título un poco más grande */
+            font-weight: 300; /* Fuente más ligera para un look minimalista */
+            letter-spacing: 0.5px;
+        }
+        .button-group {
+            display: flex;
+            flex-direction: column; /* Botones uno debajo del otro por defecto */
+            gap: 15px; /* Espacio entre los botones */
+            margin-bottom: 25px;
+        }
+        /* Media query para hacerlos en fila en pantallas más grandes */
+        @media (min-width: 600px) {
+            .button-group {
+                flex-direction: row; /* En fila en pantallas de 600px o más */
+                justify-content: center;
+            }
+        }
+
+        button {
+            padding: 18px 35px; /* Más padding para botones grandes */
+            font-size: 1.3em; /* Texto de botón más grande */
+            border: none;
+            border-radius: 8px; /* Bordes rectos pero con un radio suave */
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1.5px; /* Más espaciado entre letras */
+            font-weight: 600; /* Seminegrita */
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); /* Sombra muy ligera */
+        }
+        button.on {
+            /* Verde menta suave */
+            background-color: #D4EDDA;
+            color: #3C763D; /* Texto verde oscuro para contraste */
+        }
+        button.on:hover {
+            background-color: #C8E6C9; /* Un poco más oscuro al pasar el ratón */
+            transform: translateY(-2px); /* Pequeño efecto de elevación */
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        button.off {
+            /* ¡CAMBIO AQUÍ! Gris oscuro/casi negro para "Apagar" */
+            background-color: #424242; /* Gris oscuro que simula apagado */
+            color: #E0E0E0; /* Texto gris claro para contraste */
+        }
+        button.off:hover {
+            background-color: #555555; /* Un poco más claro al pasar el ratón */
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        #status {
+            margin-top: 35px;
+            font-size: 1.1em;
+            /* Gris piedra claro */
+            color: #8899AA;
+            font-style: normal; /* Quitamos la cursiva para minimalismo */
+            font-weight: 500; /* Texto de estado un poco más audaz */
+            transition: all 0.3s ease; /* Transición para cambios de estilo */
+        }
+
+        /* Estilos para el mensaje de error/fallo */
+        #status.error-status {
+            color: #D32F2F; /* Rojo oscuro para el texto */
+            background-color: #FFEBEE; /* Fondo rojo muy pálido */
+            border: 1px solid #EF9A9A; /* Borde rojo suave */
+            padding: 8px 15px; /* Espaciado interno */
+            border-radius: 5px; /* Bordes ligeramente redondeados */
+            font-weight: 600; /* Texto más audaz */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Sistema de control de la luz de la puerta</h1>
+        <div class="button-group">
+            <button class="on" onclick="publishMessage('ON')">Encender Luz</button>
+            <button class="off" onclick="publishMessage('OFF')">Apagar Luz</button>
+        </div>
+        <p id="status">Estado: Desconectado</p>
+    </div>
+
+    <script src="mqtt.min.js"></script> 
+    <script>
+        // Configuración del broker MQTT
+        const BROKER_HOST = "broker.hivemq.com";
+        // CAMBIO AQUÍ: Usar puerto 8884 para WebSockets con SSL
+        const BROKER_PORT = 8884; 
+        const CLIENT_ID = "WebAppClient-" + parseInt(Math.random() * 100);
+        const TOPIC_CONTROL = "casa/puerta/luz/control";
+
+        let client; 
+        let statusElement = document.getElementById('status');
+
+        function connectMQTT() {
+            // CAMBIO AQUÍ: Usamos 'wss://' para indicar conexión WebSocket segura (SSL)
+            client = mqtt.connect('wss://' + BROKER_HOST + ':' + BROKER_PORT, {
+                clientId: CLIENT_ID
+            });
+
+            console.log("Intentando conectar a MQTT...");
+            statusElement.textContent = "Estado: Conectando...";
+            statusElement.classList.remove('error-status'); 
+
+            client.on('connect', function () {
+                console.log("Conectado a MQTT");
+                statusElement.textContent = "Estado: Conectado";
+                statusElement.classList.remove('error-status');
+                
+                // Opcional: Suscribirse a algún topic si esperas respuestas del ESP32
+                // Por ejemplo, para recibir el estado actual de la luz si el ESP32 lo publica
+                // client.subscribe("casa/puerta/luz/estado", function (err) {
+                //     if (!err) {
+                //         console.log("Suscrito a casa/puerta/luz/estado");
+                //     } else {
+                //         console.error("Error al suscribirse:", err);
+                //     }
+                // });
+            });
+
+            client.on('reconnect', function () {
+                console.log("Reconectando a MQTT...");
+                statusElement.textContent = "Estado: Reconectando...";
+                statusElement.classList.add('error-status'); 
+            });
+
+            client.on('error', function (err) {
+                console.error("Error de conexión a MQTT: ", err); 
+                statusElement.textContent = "Estado: Fallo la conexión";
+                statusElement.classList.add('error-status'); 
+            });
+
+            client.on('close', function () {
+                console.log("Conexión MQTT cerrada.");
+                statusElement.textContent = "Estado: Conexión perdida";
+                statusElement.classList.add('error-status');
+            });
+
+            client.on('message', function (topic, message) {
+                console.log("Mensaje recibido: " + message.toString() + " en topic: " + topic);
+                // Aquí podrías actualizar el estado de la luz en la página si el ESP32 publica su estado
+                // if (topic === "casa/puerta/luz/estado") {
+                //     const estadoLuz = message.toString();
+                //     // Actualizar algún elemento en la UI basado en estadoLuz
+                // }
+            });
+        }
+
+        function publishMessage(message) {
+            if (client && client.connected) { 
+                client.publish(TOPIC_CONTROL, message, { retain: true }, function (err) {
+                    if (err) {
+                        console.error("Error al publicar mensaje: ", err);
+                        statusElement.textContent = "Estado: Error al publicar";
+                        statusElement.classList.add('error-status');
+                    } else {
+                        console.log("Mensaje publicado: " + message);
+                        statusElement.textContent = "Mensaje enviado: " + message;
+                        statusElement.classList.remove('error-status'); 
+                    }
+                });
+            } else {
+                console.warn("No conectado al broker MQTT. Intentando reconectar...");
+                statusElement.textContent = "Estado: Publicación fallida (no conectado)";
+                statusElement.classList.add('error-status'); 
+                if (!client) { 
+                    connectMQTT();
+                }
+            }
+        }
+
+        // Conectar cuando la página carga
+        window.onload = connectMQTT;
+    </script>
+</body>
+</html>
